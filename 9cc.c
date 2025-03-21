@@ -65,7 +65,7 @@ Token *tokenize(char *p) {
       continue;
     }
 
-    if (*p == '+' || *p == '-') {
+    if (*p == '+' || *p == '-' || *p == '*' || *p == '/') {
       cur = new_token(TK_RESERVED, cur, p++);
       continue;
     }
@@ -89,7 +89,8 @@ bool consume(char op) {
   if (token->kind != TK_RESERVED || token->str[0] != op)
     return false;
   token = token->next;
-  return true; }
+  return true;
+}
 
 void expect(char op) {
   if (token->kind != TK_RESERVED || token->str[0] != op)
@@ -113,6 +114,8 @@ bool at_eof() { return token->kind == TK_EOF; }
 typedef enum {
   ND_ADD, // +
   ND_SUB, // -
+  ND_MUL, // *
+  ND_DIV, // /
   ND_NUM, // 整数
 } NodeKind;
 
@@ -141,46 +144,68 @@ Node *new_node_num(int val) {
 }
 
 Node *expr();
+Node *mul();
 
-// expr = num ("+" num | "-" num)*
+// expr = mul ("+" mul | "-" mul)*
 Node *expr() {
-	Node *node = new_node_num(expect_number());
+  Node *node = mul();
 
-	for (;;) {
-		if (consume('+'))
-			node = new_node(ND_ADD, node, new_node_num(expect_number()));
-		else if (consume('-'))
-			node = new_node(ND_SUB, node, new_node_num(expect_number()));
-		else
-			return node;
-	}
+  for (;;) {
+    if (consume('+'))
+      node = new_node(ND_ADD, node, mul());
+    else if (consume('-'))
+      node = new_node(ND_SUB, node, mul());
+    else
+      return node;
+  }
+}
+
+// mul = num ("*" num | "/" num)*
+Node *mul() {
+  Node *node = new_node_num(expect_number());
+
+  for (;;) {
+    if (consume('*'))
+      node = new_node(ND_MUL, node, new_node_num(expect_number()));
+    else if (consume('/'))
+      node = new_node(ND_DIV, node, new_node_num(expect_number()));
+    else
+      return node;
+  }
 }
 
 /*
  * スタックマシンコンパイラ
  */
 void gen(Node *node) {
-	if (node->kind == ND_NUM) {
-		printf("  push %d\n", node->val);
-		return;
-	}
+  if (node->kind == ND_NUM) {
+    printf("  push %d\n", node->val);
+    return;
+  }
 
-	gen(node->lhs);
-	gen(node->rhs);
+  gen(node->lhs);
+  gen(node->rhs);
 
-	printf("  pop rdi\n");
-	printf("  pop rax\n");
+  printf("  pop rdi\n");
+  printf("  pop rax\n");
 
-	switch (node->kind) {
-	case ND_ADD:
-		printf("  add rax, rdi\n");
-		break;
-	case ND_SUB:
-		printf("  sub rax, rdi\n");
-		break;
-	}
+  switch (node->kind) {
+  case ND_ADD:
+    printf("  add rax, rdi\n");
+    break;
+  case ND_SUB:
+    printf("  sub rax, rdi\n");
+    break;
+  case ND_MUL:
+	printf("  imul rax, rdi\n");
+	break;
+  case ND_DIV:
+	printf("  cqo\n");
+	printf("  idiv rdi\n");
+	break;
+  }
 
-	printf("  push rax\n");
+  printf("  push rax\n");
 }
 
 int main(int argc, char **argv) {
